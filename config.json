@@ -1,0 +1,19 @@
+{
+    "spectral_width" : 400.0,
+    "doppler_v" : 300.0,
+    "transmit_freq" : 10.0e3,
+    "amplitude" : 100.0,
+    "white_noise_level" : 10.0,
+    "num_averages" : 30,
+    "num_ranges" : 75,
+    "first_range" : 4,
+    "sample_separation" : 300.0e-6,
+    "fundamental_lag_spacing" : 1800,
+    "range_separation" : 45000,
+    "pulses" : [0,14,22,24,27,31,42,43],
+    "lags" : [[0,0],[42,43],[22,24],[24,27],[27,31],[22,27],[24,31],[14,22],[22,31],
+                 [14,24],[31,42],[31,43],[14,27],[0,14],[27,42],[27,43],[14,31],[24,42],
+                 [24,43],[22,42],[22,43],[0,22],[0,24]],
+    "num_records" : 10
+}
+
