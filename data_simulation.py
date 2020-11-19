@@ -5,6 +5,7 @@ import itertools
 import matplotlib
 import pydarnio
 import datetime
+import copy
 
 matplotlib.use('TkAgg')
 from matplotlib import pyplot
@@ -65,7 +66,7 @@ def plotting_cov_mat(cov_mat):
     pyplot.show()
 
 
-def create_output_params(transmit_freq, white_noise_level, sample_separation, pulses, lags,
+def create_output_params(transmit_freqs, white_noise_level, sample_separation, pulses, lags,
                         first_range, range_separation, fundamental_lag_spacing, sim_acfs):
 
     num_records, num_ranges, num_averages = sim_acfs.shape[:3]
@@ -74,11 +75,48 @@ def create_output_params(transmit_freq, white_noise_level, sample_separation, pu
     sequence_time = pulses[-1] * (fundamental_lag_spacing * 1e-6) + (num_ranges * sample_separation * 1e-6)
     sequence_times = [now + datetime.timedelta(seconds=(i * sequence_time)) for i in range(num_records)]
 
-    pwr0 = np.abs(sim_acfs)[...,0]
+    common_fields = {}
 
-    acfd = np.zeros(sim_acfs.shape + (2,))
-    acfd[...,0] = sim_acfs.real
-    acfd[...,1] = sim_acfs.imag
+    common_fields['radar.revision.major'] = np.int8(0)
+    common_fields['radar.revision.minor'] = np.int8(0)
+    common_fields['origin.code'] = np.int8(0)
+    common_fields['origin.time'] = ' '
+    common_fields['origin.command'] = 'python3 data_simulation.py'
+    common_fields['cp'] = np.int16(0)
+    common_fields['stid'] = np.int16(6)
+    common_fields['txpow'] = np.int16(0)
+    common_fields['nave'] = np.int16(num_averages)
+    common_fields['atten'] = np.int16(0)
+    common_fields['lagfr'] = np.int16(first_range * sample_separation)
+    common_fields['smsep'] = np.int16(sample_separation)
+    common_fields['ercod'] = np.int16(0)
+    common_fields['stat.agc'] = np.int16(0)
+    common_fields['stat.lopwr'] = np.int16(0)
+    common_fields['noise.search'] = np.float32(0)
+    common_fields['noise.mean'] = np.float32(0)
+    common_fields['channel'] = np.int16(0)
+    common_fields['bmnum'] = np.int16(0)
+    common_fields['bmazm'] = np.float32(0)
+    common_fields['scan'] = np.int16(0)
+    common_fields['offset'] = np.int16(0)
+    common_fields['rxrise'] = np.int16(0)
+    common_fields['combf'] = "Simulated data"
+
+    integer, decimal = divmod(sequence_time * num_averages, 1)
+    common_fields['intt.sc'] = np.int16(integer)
+    common_fields['intt.us'] = np.int32(decimal)
+
+    common_fields['txpl'] = np.int16(sample_separation)
+    common_fields['mpinc'] = np.int16(fundamental_lag_spacing)
+    common_fields['mppul'] = np.int16(pulses.shape[0])
+    common_fields['mplgs'] = np.int16(lags.shape[0])
+    common_fields['nrang'] = np.int16(num_ranges)
+    common_fields['frang'] = np.int16(first_range * range_separation)
+    common_fields['rsep'] = np.int16(range_separation)
+    common_fields['xcf'] = np.int16(0)
+    common_fields['mxpwr'] = np.int32(0)
+    common_fields['lvmax'] = np.int32(0)
+    common_fields['ptab'] = pulses.astype(np.int16)
 
     shape = list(lags.shape)
     shape[0] += 1
@@ -86,70 +124,44 @@ def create_output_params(transmit_freq, white_noise_level, sample_separation, pu
     new_lags = np.zeros(shape)
     new_lags[:-1,:] = lags
     new_lags[-1,:] = pulses[-1]
+    common_fields['ltab'] = new_lags.astype(np.int16)
 
-    records = []
-    for i in range(num_records):
-        record = {}
-        record['radar.revision.major' ] = np.int8(0)
-        record['radar.revision.minor'] = np.int8(0)
-        record['origin.code'] = np.int8(0)
-        record['origin.time'] = ' '
-        record['origin.command'] = 'python3 data_simulation.py'
-        record['cp'] = np.int16(0)
-        record['stid'] = np.int16(6)
-        record['time.yr'] = np.int16(sequence_times[i].year)
-        record['time.mo'] = np.int16(sequence_times[i].month)
-        record['time.dy'] = np.int16(sequence_times[i].day)
-        record['time.hr'] = np.int16(sequence_times[i].hour)
-        record['time.mt'] = np.int16(sequence_times[i].minute)
-        record['time.sc'] = np.int16(sequence_times[i].second)
-        record['time.us'] = np.int32(sequence_times[i].microsecond)
-        record['txpow'] = np.int16(0)
-        record['nave'] = np.int16(num_averages)
-        record['atten'] = np.int16(0)
-        record['lagfr'] = np.int16(first_range * sample_separation)
-        record['smsep'] = np.int16(sample_separation)
-        record['ercod'] = np.int16(0)
-        record['stat.agc'] = np.int16(0)
-        record['stat.lopwr'] = np.int16(0)
-        record['noise.search'] = np.float32(0)
-        record['noise.mean'] = np.float32(0)
-        record['channel'] = np.int16(0)
-        record['bmnum'] = np.int16(0)
-        record['bmazm'] = np.float32(0)
-        record['scan'] = np.int16(0)
-        record['offset'] = np.int16(0)
-        record['rxrise'] = np.int16(0)
 
-        integer, decimal = divmod(sequence_time * num_averages, 1)
-        record['intt.sc'] = np.int16(integer)
-        record['intt.us'] = np.int32(decimal)
-        record['txpl'] = np.int16(sample_separation)
-        record['mpinc'] = np.int16(fundamental_lag_spacing)
-        record['mppul'] = np.int16(pulses.shape[0])
-        record['mplgs'] = np.int16(lags.shape[0])
-        record['nrang'] = np.int16(num_ranges)
-        record['frang'] = np.int16(first_range * range_separation)
-        record['rsep'] = np.int16(range_separation)
-        record['xcf'] = np.int16(0)
-        record['tfreq'] = np.int16(transmit_freq)
-        record['mxpwr'] = np.int32(0)
-        record['lvmax'] = np.int32(0)
-        record['rawacf.revision.major'] = np.int32(0)
-        record['rawacf.revision.minor'] = np.int32(0)
-        record['combf'] = "Simulated data"
-        record['thr'] = np.float32(0)
-        record['ptab'] = pulses.astype(np.int16)
-        record['ltab'] = new_lags.astype(np.int16)
-        record['slist'] = np.arange(num_ranges, dtype=np.int16)
-        record['pwr0'] = pwr0[i].astype(np.float32)
-        record['acfd'] = acfd[i].astype(np.float32)
+    pwr0 = np.abs(sim_acfs)[...,0]
 
-        records.append(record)
+    acfd = np.zeros(sim_acfs.shape + (2,))
+    acfd[...,0] = sim_acfs.real
+    acfd[...,1] = sim_acfs.imag
 
-    filename = "sim.rawacf"
-    writer = pydarnio.SDarnWrite(records)
-    writer.write_rawacf(filename)
+
+    for i in range(transmit_freqs.shape[0]):
+        records = []
+        for j in range(num_records):
+            record = copy.deepcopy(common_fields)
+            record['time.yr'] = np.int16(sequence_times[j].year)
+            record['time.mo'] = np.int16(sequence_times[j].month)
+            record['time.dy'] = np.int16(sequence_times[j].day)
+            record['time.hr'] = np.int16(sequence_times[j].hour)
+            record['time.mt'] = np.int16(sequence_times[j].minute)
+            record['time.sc'] = np.int16(sequence_times[j].second)
+            record['time.us'] = np.int32(sequence_times[j].microsecond)
+            record['tfreq'] = np.int16(transmit_freqs[i])
+
+
+
+            record['rawacf.revision.major'] = np.int32(0)
+            record['rawacf.revision.minor'] = np.int32(0)
+            record['thr'] = np.float32(0)
+
+            record['pwr0'] = pwr0[j].astype(np.float32)
+            record['acfd'] = acfd[j].astype(np.float32)
+            record['slist'] = np.arange(num_ranges, dtype=np.int16)
+
+            records.append(record)
+
+        filename = "simulated_{}.rawacf".format(i)
+        writer = pydarnio.SDarnWrite(records)
+        writer.write_rawacf(filename)
 
 
 
@@ -163,8 +175,8 @@ def main():
     with open('config.json', 'r') as f:
         sim_params = json.load(f)
 
-    transmit_freq = sim_params['transmit_freq']
-    spectral_width = sim_params['spectral_width']
+    transmit_freqs = np.array(sim_params['transmit_freqs'])
+    spectral_width_range = sim_params['spectral_width_range']
     white_noise_level = sim_params['white_noise_level']
     amplitude = sim_params['amplitude']
     sample_separation = sim_params['sample_separation']
@@ -174,9 +186,10 @@ def main():
     num_averages = sim_params['num_averages']
     range_separation = sim_params['range_separation']
     fundamental_lag_spacing = sim_params['fundamental_lag_spacing']
-    velocity = sim_params['velocity']
+    velocity_range = sim_params['velocity_range']
     num_records = sim_params['num_records']
     lags = np.array(sim_params['lags'])
+    ranges_with_data = sim_params['ranges_with_data']
 
 
     # Find highest lag (account for lag 0) and generate all possible lags.
@@ -186,35 +199,45 @@ def main():
 
 
     # Compute the ACF model for all possible lag numbers.
-    wavelength = C/(transmit_freq * 1e3)
+    wavelength = C/(transmit_freqs * 1e3)
 
     lag_nums = np.abs(all_possible_lags[:,1] - all_possible_lags[:,0])
     t = lag_nums * (fundamental_lag_spacing * 1e-6)
+    t = t[np.newaxis,:,np.newaxis]
+
+    v = np.linspace(velocity_range[0], velocity_range[1], num=num_ranges)
+    v = v[:,np.newaxis,np.newaxis]
+
+    w = np.linspace(spectral_width_range[0], spectral_width_range[1], num=num_ranges)
+    w = w[:,np.newaxis,np.newaxis]
 
     W_constant = (-1 * 2 * np.pi * t)/wavelength
     V_constant = (1j * 4 * np.pi * t)/wavelength
 
-    acf_model = amplitude * np.exp(W_constant * spectral_width) * np.exp(V_constant * velocity)
+    acf_model = amplitude * np.exp(W_constant * w) * np.exp(V_constant * v)
 
     # define rho now to be an array of [4, all_lags]. Each row will be the rho value corresponding
     # to the components of the voltage samples used to make the correlations. The resultant array
     # dimensions can be transposed and reshaped to yield the values of the covariance matrix with
     # dimensions of [2*highest_lag, 2*highest_lag]. Covariance matrix signs will be fixed after.
 
+
     rho = np.array([acf_model.real, acf_model.imag, acf_model.imag, acf_model.real])
+    rho = np.einsum('ijkl->ljki', rho)
 
-    new_shape1 = [highest_lag, highest_lag, 2, 2]
-    new_axis = (0,2,1,3)
+    new_shape1 = [transmit_freqs.shape[0], num_ranges, highest_lag, highest_lag, 2, 2]
+    new_axis = (0,1,2,4,3,5)
 
-    new_shape2 = [highest_lag * 2, highest_lag * 2]
+    new_shape2 = [transmit_freqs.shape[0], num_ranges, highest_lag * 2, highest_lag * 2]
 
-    cov_mat = rho.T.reshape(new_shape1).transpose(new_axis).reshape(new_shape2)
+    cov_mat = rho.reshape(new_shape1).transpose(new_axis).reshape(new_shape2)
     cov_mat /= 2.0
-
+    print(cov_mat.shape)
 
     # Signs need to be flipped for every second value on every second diagonal to properly account
     # for the sign changes.
-    rows, cols = np.indices(cov_mat.shape)
+    rows, cols = np.indices((highest_lag * 2, highest_lag * 2))
+    signs = np.ones((highest_lag * 2, highest_lag * 2))
 
     starting_diagonal = (-1 * 2 * highest_lag) + 1
     for i in range(2 * highest_lag):
@@ -223,7 +246,10 @@ def main():
         rows_idx = np.diag(rows, diag_to_use)[::2]
         cols_idx = np.diag(cols, diag_to_use)[::2]
 
-        cov_mat[rows_idx,cols_idx] *= -1.0
+        signs[rows_idx,cols_idx] *= -1.0
+
+    cov_mat *= signs[np.newaxis, np.newaxis, :, :]
+    #plotting_cov_mat(cov_mat[-1,-1])
 
 
     # tst_cov = amplitude * np.diagflat(np.ones(2*highest_lag))
@@ -249,12 +275,35 @@ def main():
     np.random.seed(13873) # so that we can deterministically reproduce our results
 
     # Draw random samples from PDFs generated from the cov_mat.
-    size = (num_records, num_ranges, num_averages, 1)
+    size = (num_records, num_averages, 1)
     mean = np.zeros(highest_lag * 2)
-    rand_samps = np.random.multivariate_normal(mean, cov_mat, size=size)
-    noise_samps = np.random.multivariate_normal(mean, noise_cov, size=size)
+
+    rand_samps = []
+    noise_samps = []
+    for i in range(transmit_freqs.shape[0]):
+        rs = []
+        ns = []
+
+        for j in range(num_ranges):
+            rs.append(np.random.multivariate_normal(mean, cov_mat[i,j], size=size))
+            ns.append(np.random.multivariate_normal(mean, noise_cov, size=size))
+
+        rand_samps.append(rs)
+        noise_samps.append(ns)
+
+
+    rand_samps = np.array(rand_samps)
+
+    ranges_with_data = np.concatenate([np.arange(rng[0],rng[1]) for rng in ranges_with_data])
+    mask = np.full(rand_samps.shape, True, dtype=bool)
+    mask[:,ranges_with_data,...] = False
+
+    rand_samps[mask] = 0.0
+
+    noise_samps = np.array(noise_samps)
 
     samps = rand_samps + noise_samps
+    samps = np.einsum('ijk...->kij...', samps)
 
     # Generate ACFs from drawn samples.
     samples_T = samps[...,0::2] + 1j * samps[...,1::2]
@@ -267,7 +316,9 @@ def main():
     sim_acfs = all_acfs[...,lags[:,0],lags[:,1]]
     sim_acfs = np.mean(sim_acfs, axis=2)
 
-    create_output_params(transmit_freq, white_noise_level, sample_separation, pulses, lags,
+
+
+    create_output_params(transmit_freqs, white_noise_level, sample_separation, pulses, lags,
                         first_range, range_separation, fundamental_lag_spacing, sim_acfs)
 
     #plotting_acfs(sim_acfs[0,0], acf_model, lags, t, amplitude)
