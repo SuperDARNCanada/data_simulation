@@ -127,15 +127,8 @@ def create_output_params(transmit_freqs, white_noise_level, sample_separation, p
     common_fields['ltab'] = new_lags.astype(np.int16)
 
 
-    pwr0 = np.abs(sim_acfs)[...,0]
-
-    acfd = np.zeros(sim_acfs.shape + (2,))
-    acfd[...,0] = sim_acfs.real
-    acfd[...,1] = sim_acfs.imag
-
-
     for i in range(transmit_freqs.shape[0]):
-        records = []
+        rawacf_records = []
         for j in range(num_records):
             record = copy.deepcopy(common_fields)
             record['time.yr'] = np.int16(sequence_times[j].year)
@@ -148,14 +141,13 @@ def create_output_params(transmit_freqs, white_noise_level, sample_separation, p
             record['tfreq'] = np.int16(transmit_freqs[i])
 
 
-
-            record['rawacf.revision.major'] = np.int32(0)
-            record['rawacf.revision.minor'] = np.int32(0)
-            record['thr'] = np.float32(0)
-
-            record['pwr0'] = pwr0[j].astype(np.float32)
-            record['acfd'] = acfd[j].astype(np.float32)
-            record['slist'] = np.arange(num_ranges, dtype=np.int16)
+            rawacf_record = copy.deepcopy(record)
+            rawacf_record['rawacf.revision.major'] = np.int32(0)
+            rawacf_record['rawacf.revision.minor'] = np.int32(0)
+            rawacf_record['thr'] = np.float32(0)
+            rawacf_record['pwr0'] = pwr0[j].astype(np.float32)
+            rawacf_record['acfd'] = acfd[j].astype(np.float32)
+            rawacf_record['slist'] = np.arange(num_ranges, dtype=np.int16)
 
             records.append(record)
 
@@ -305,6 +297,7 @@ def main():
     samps = rand_samps + noise_samps
     samps = np.einsum('ijk...->kij...', samps)
 
+
     # Generate ACFs from drawn samples.
     samples_T = samps[...,0::2] + 1j * samps[...,1::2]
     samples_H = np.conj(samples_T)
@@ -316,7 +309,30 @@ def main():
     sim_acfs = all_acfs[...,lags[:,0],lags[:,1]]
     sim_acfs = np.mean(sim_acfs, axis=2)
 
+    pwr0 = np.abs(sim_acfs)[...,0]
 
+    acfd = np.zeros(sim_acfs.shape + (2,))
+    acfd[...,0] = sim_acfs.real
+    acfd[...,1] = sim_acfs.imag
+
+    samples_temp = samples[...,pulses,0]
+    samples_temp = np.einsum('ijklm->ijlkm', samples_temp)
+
+    num_output_samps = int(first_range + num_ranges + (pulses[-1] * (fundamental_lag_spacing / sample_separation)))
+    iq_samps = np.zeros(samples_temp.shape[:3] + (num_output_samps,), dtype=samples_temp.dtype)
+
+    for i in range(num_ranges):
+        idx = pulses * int(fundamental_lag_spacing / sample_separation) + i + first_range
+        iq_samps[...,idx] += samples_temp[...,i,:]
+
+    fig = pyplot.figure()
+    ax = fig.add_subplot(111)
+    tmp=ax.plot(iq_samps[0,0,:,:].T.real)
+    pyplot.show()
+    #print(iq_samps.shape)
+    #iq_samps = np.einsum('ijklm->ijlmk', iq_samps)
+    #iq_samps = iq_samps.reshape(iq_samps.shape[:3] + (-1,))
+    #print(iq_samps.shape)
 
     create_output_params(transmit_freqs, white_noise_level, sample_separation, pulses, lags,
                         first_range, range_separation, fundamental_lag_spacing, sim_acfs)
