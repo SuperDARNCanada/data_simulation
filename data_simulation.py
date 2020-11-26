@@ -67,7 +67,7 @@ def plotting_cov_mat(cov_mat):
 
 
 def create_output_params(transmit_freqs, white_noise_level, sample_separation, pulses, lags,
-                        first_range, range_separation, fundamental_lag_spacing, sim_acfs):
+                        first_range, range_separation, fundamental_lag_spacing, sim_acfs, bfiq_samps):
 
     num_records, num_ranges, num_averages = sim_acfs.shape[:3]
 
@@ -77,7 +77,6 @@ def create_output_params(transmit_freqs, white_noise_level, sample_separation, p
     sequence_times = [dt.timestamp() for dt in sequence_times]
 
     common_fields = {}
-    common_fields['averaging_method'] = np.array(['mean'])[0]
     common_fields['beam_azms'] = np.zeros(num_records, dtype=np.float64)
     common_fields['beam_nums'] = np.zeros(num_records, dtype=np.uint32)
     common_fields['blanked_samples'] = np.zeros(num_records, dtype=np.uint32)
@@ -120,6 +119,7 @@ def create_output_params(transmit_freqs, white_noise_level, sample_separation, p
 
     for i in range(transmit_freqs.shape[0]):
         rawacf_data = copy.deepcopy(common_fields)
+        rawacf_data['averaging_method'] = np.array(['mean'])[0]
         rawacf_data['slice_id'] = np.uint32(i)
         rawacf_data['freq'] = np.uint32(transmit_freqs[i])
         rawacf_data['correlation_descriptors'] = np.array(['num_records', 'num_beams', 'num_ranges', 'num_lags'])
@@ -127,8 +127,25 @@ def create_output_params(transmit_freqs, white_noise_level, sample_separation, p
         rawacf_data['xcfs'] = np.zeros(sim_acfs[:,i].shape, dtype=np.complex64)
         rawacf_data['intf_acfs'] = np.zeros(sim_acfs[:,i].shape, dtype=np.complex64)
 
+        bfiq_data = copy.deepcopy(common_fields)
+        bfiq_data['slice_id'] = np.uint32(i)
+        bfiq_data['antenna_arrays_order'] = np.array(['main', 'interferometer'])
+        bfiq_data['data'] = bfiq_samps[:,i].astype(np.complex64)
+        bfiq_data['freq'] = np.uint32(transmit_freqs[i])
+        bfiq_data['data_descriptors'] = np.array(['num_records', 'num_antenna_arrays', 'max_num_sequences', 'max_num_beams', 'num_samps'])
+        bfiq_data['pulse_phase_offset'] = np.array([], dtype=np.float32)
+        bfiq_data['num_samps'] = np.uint32(bfiq_samps.shape[-1])
+        bfiq_data['num_ranges'] = np.uint32(num_ranges)
+
+
+
         filename = "simulated_{}.rawacf.hdf5".format(i)
-        writer = pydarnio.BorealisWrite(filename, rawacf_data, 'rawacf', 'array')
+        pydarnio.BorealisWrite(filename, rawacf_data, 'rawacf', 'array')
+
+        filename = "simulated_{}.bfiq.hdf5".format(i)
+        pydarnio.BorealisWrite(filename, bfiq_data, 'bfiq', 'array')
+
+
 
 
 def main():
@@ -270,15 +287,18 @@ def main():
     samples_temp = np.einsum('ijklm->ijlkm', samples_temp)
 
     num_output_samps = int(first_range + num_ranges + (pulses[-1] * (fundamental_lag_spacing / sample_separation)))
-    iq_samps = np.zeros(samples_temp.shape[:3] + (num_output_samps,), dtype=samples_temp.dtype)
+    bfiq_samps = np.zeros(samples_temp.shape[:3] + (num_output_samps,), dtype=samples_temp.dtype)
+
+    # add axis for antenna arrays and for beams.
+    bfiq_samps[:,:,np.newaxis,:,np.newaxis,:]
 
     for i in range(num_ranges):
         idx = pulses * int(fundamental_lag_spacing / sample_separation) + i + first_range
-        iq_samps[...,idx] += samples_temp[...,i,:]
+        bfiq_samps[...,idx] += samples_temp[...,i,:]
 
 
     create_output_params(transmit_freqs, white_noise_level, sample_separation, pulses, lags,
-                        first_range, range_separation, fundamental_lag_spacing, sim_acfs)
+                        first_range, range_separation, fundamental_lag_spacing, sim_acfs, bfiq_samps)
 
 
 if __name__ == "__main__":
