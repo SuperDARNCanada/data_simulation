@@ -1,6 +1,7 @@
 {
     "spectral_width_range" : [50.0, 400.0],
     "velocity_range" : [-300.0, 300.0],
+    "elevation_phase_range" : [0.0, 90.0],
     "transmit_freqs" : [10.0e3, 12.0e3],
     "amplitude" : 100.0,
     "white_noise_level" : 1.0,

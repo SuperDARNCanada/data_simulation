@@ -67,9 +67,13 @@ def plotting_cov_mat(cov_mat):
 
 
 def create_output_params(transmit_freqs, white_noise_level, sample_separation, pulses, lags,
-                        first_range, range_separation, fundamental_lag_spacing, sim_acfs, bfiq_samps):
+                        first_range, range_separation, fundamental_lag_spacing, output_params):
 
-    num_records, num_ranges, num_averages = sim_acfs.shape[:3]
+    num_records = output_params['num_records']
+    num_slices = output_params['num_slices']
+    num_ranges = output_params['num_ranges']
+    num_averages = output_params['num_averages']
+    num_beams = output_params['num_beams']
 
     now = datetime.datetime.utcnow()
     sequence_time = pulses[-1] * (fundamental_lag_spacing * 1e-6) + (num_ranges * sample_separation * 1e-6)
@@ -91,16 +95,16 @@ def create_output_params(transmit_freqs, white_noise_level, sample_separation, p
     common_fields['main_antenna_count'] = np.uint32(16)
     common_fields['noise_at_freq'] = np.zeros((num_records, num_averages))
     common_fields['num_sequences'] = np.ones(num_records, dtype=np.int64) * num_averages
-    common_fields['num_slices'] = np.ones(num_records, dtype=np.int64) * transmit_freqs.shape[0]
+    common_fields['num_slices'] = np.ones(num_records, dtype=np.int64) * num_slices
     common_fields['pulses'] = pulses.astype(np.uint32)
     common_fields['range_sep'] = np.float32(range_separation)
-    common_fields['rx_sample_rate'] = np.float64(1 / sample_separation)
+    common_fields['rx_sample_rate'] = np.float64(1 / sample_separation) * 1e6
     common_fields['samples_data_type'] = np.array(['complex float'])[0]
     common_fields['scan_start_marker'] = np.zeros(num_records, dtype=np.bool)
     common_fields['scheduling_mode'] = np.array(['None'])[0]
     common_fields['slice_comment'] = np.array(["Simulated data"])[0]
     common_fields['num_blanked_samples'] = np.zeros(num_records, np.uint32)
-    common_fields['num_beams'] = np.ones(num_records, dtype=np.uint32)
+    common_fields['num_beams'] = np.ones(num_records, dtype=np.uint32) * num_beams
     common_fields['first_range'] = np.float32(first_range * range_separation)
     common_fields['slice_interfacing'] = np.array(['']*num_records)
     common_fields['sqn_timestamps'] = np.array(sequence_times)
@@ -123,18 +127,18 @@ def create_output_params(transmit_freqs, white_noise_level, sample_separation, p
         rawacf_data['slice_id'] = np.uint32(i)
         rawacf_data['freq'] = np.uint32(transmit_freqs[i])
         rawacf_data['correlation_descriptors'] = np.array(['num_records', 'num_beams', 'num_ranges', 'num_lags'])
-        rawacf_data['main_acfs'] = sim_acfs[:,i].astype(np.complex64)
-        rawacf_data['xcfs'] = np.zeros(sim_acfs[:,i].shape, dtype=np.complex64)
-        rawacf_data['intf_acfs'] = np.zeros(sim_acfs[:,i].shape, dtype=np.complex64)
+        rawacf_data['main_acfs'] = output_params['main_acfs'][:,i].astype(np.complex64)
+        rawacf_data['xcfs'] = output_params['xcfs'][:,i].astype(np.complex64)
+        rawacf_data['intf_acfs'] = output_params['intf_acfs'][:,i].astype(np.complex64)
 
         bfiq_data = copy.deepcopy(common_fields)
         bfiq_data['slice_id'] = np.uint32(i)
         bfiq_data['antenna_arrays_order'] = np.array(['main', 'interferometer'])
-        bfiq_data['data'] = bfiq_samps[:,i].astype(np.complex64)
+        bfiq_data['data'] = output_params['bfiq'][:,i].astype(np.complex64)
         bfiq_data['freq'] = np.uint32(transmit_freqs[i])
         bfiq_data['data_descriptors'] = np.array(['num_records', 'num_antenna_arrays', 'max_num_sequences', 'max_num_beams', 'num_samps'])
         bfiq_data['pulse_phase_offset'] = np.array([], dtype=np.float32)
-        bfiq_data['num_samps'] = np.uint32(bfiq_samps.shape[-1])
+        bfiq_data['num_samps'] = np.uint32(output_params['bfiq'].shape[-1])
         bfiq_data['num_ranges'] = np.uint32(num_ranges)
 
 
@@ -165,6 +169,7 @@ def main():
     range_separation = sim_params['range_separation']
     fundamental_lag_spacing = sim_params['fundamental_lag_spacing']
     velocity_range = sim_params['velocity_range']
+    elevation_range = sim_params['elevation_phase_range']
     num_records = sim_params['num_records']
     lags = np.array(sim_params['lags'])
     ranges_with_data = sim_params['ranges_with_data']
@@ -233,7 +238,7 @@ def main():
     np.random.seed(13873) # so that we can deterministically reproduce our results
 
     # Draw random samples from PDFs generated from the cov_mat.
-    size = (num_records, num_averages, 1)
+    size = (num_records, num_averages, 2, 1)
     mean = np.zeros(highest_lag * 2)
 
     rand_samps = []
@@ -251,6 +256,12 @@ def main():
 
 
     rand_samps = np.array(rand_samps)
+    rand_samps = rand_samps[...,0::2] + 1j * rand_samps[...,1::2]
+
+    e = np.linspace(elevation_range[0], elevation_range[1], num=num_ranges) * np.pi/180.0
+    e = e[np.newaxis,:,np.newaxis,np.newaxis,np.newaxis,np.newaxis]
+
+    rand_samps[...,1,:,:] *= np.exp(1j * e)
 
     ranges_with_data = np.concatenate([np.arange(rng[0],rng[1]) for rng in ranges_with_data])
     mask = np.full(rand_samps.shape, True, dtype=bool)
@@ -259,46 +270,64 @@ def main():
     rand_samps[mask] = 0.0
 
     noise_samps = np.array(noise_samps)
+    noise_samps = noise_samps[...,0::2] + 1j * noise_samps[...,1::2]
 
-    samps = rand_samps + noise_samps
-    samps = np.einsum('ijk...->kij...', samps)
+    raw_samps = rand_samps + noise_samps
+
+    samples_T = np.einsum('ijklm...->kmijl...', raw_samps)
 
 
     # Generate ACFs from drawn samples.
-    samples_T = samps[...,0::2] + 1j * samps[...,1::2]
     samples_H = np.conj(samples_T)
 
     samples = np.einsum('...ij->...ji', samples_T)
 
-    all_acfs = np.einsum('...ik,...kj->...ij', samples, samples_H)
+    all_main_acfs = np.einsum('...ik,...kj->...ij', samples[:,0], samples_H[:,0])
+    all_intf_acfs = np.einsum('...ik,...kj->...ij', samples[:,1], samples_H[:,1])
+    all_xcfs = np.einsum('...ik,...kj->...ij', samples[:,0], samples_H[:,1])
 
-    sim_acfs = all_acfs[...,lags[:,0],lags[:,1]]
-    sim_acfs = np.mean(sim_acfs, axis=3)
+    sim_main_acfs = all_main_acfs[...,lags[:,0],lags[:,1]]
+    sim_intf_acfs = all_intf_acfs[...,lags[:,0],lags[:,1]]
+    sim_xcfs = all_xcfs[...,lags[:,0],lags[:,1]]
+
+    sim_main_acfs = np.mean(sim_main_acfs, axis=3)
+    sim_intf_acfs = np.mean(sim_intf_acfs, axis=3)
+    sim_xcfs = np.mean(sim_xcfs, axis=3)
 
     # add axis for num beams
-    sim_acfs = sim_acfs[:,:,np.newaxis,:,:]
-    pwr0 = np.abs(sim_acfs)[...,0]
+    sim_main_acfs = sim_main_acfs[:,:,np.newaxis,:,:]
+    sim_intf_acfs = sim_intf_acfs[:,:,np.newaxis,:,:]
+    sim_xcfs = sim_xcfs[:,:,np.newaxis,:,:]
 
-    acfd = np.zeros(sim_acfs.shape + (2,))
-    acfd[...,0] = sim_acfs.real
-    acfd[...,1] = sim_acfs.imag
+
 
     samples_temp = samples[...,pulses,0]
-    samples_temp = np.einsum('ijklm->ijlkm', samples_temp)
+    samples_temp = np.einsum('ijklmn->ijkmln', samples_temp)
 
     num_output_samps = int(first_range + num_ranges + (pulses[-1] * (fundamental_lag_spacing / sample_separation)))
-    bfiq_samps = np.zeros(samples_temp.shape[:3] + (num_output_samps,), dtype=samples_temp.dtype)
+    bfiq_samps = np.zeros(samples_temp.shape[:4] + (num_output_samps,), dtype=samples_temp.dtype)
 
-    # add axis for antenna arrays and for beams.
-    bfiq_samps[:,:,np.newaxis,:,np.newaxis,:]
 
     for i in range(num_ranges):
         idx = pulses * int(fundamental_lag_spacing / sample_separation) + i + first_range
         bfiq_samps[...,idx] += samples_temp[...,i,:]
 
+    # add axis for beams.
+    bfiq_samps = bfiq_samps[...,np.newaxis,:]
+
+    output_params = {}
+    output_params['bfiq'] = bfiq_samps
+    output_params['main_acfs'] = sim_main_acfs
+    output_params['intf_acfs'] = sim_intf_acfs
+    output_params['xcfs'] = sim_xcfs
+    output_params['num_records'] = num_records
+    output_params['num_ranges'] = num_records
+    output_params['num_slices'] = transmit_freqs.shape[0]
+    output_params['num_averages'] = num_averages
+    output_params['num_beams'] = 1
 
     create_output_params(transmit_freqs, white_noise_level, sample_separation, pulses, lags,
-                        first_range, range_separation, fundamental_lag_spacing, sim_acfs, bfiq_samps)
+                        first_range, range_separation, fundamental_lag_spacing, output_params)
 
 
 if __name__ == "__main__":
