@@ -66,8 +66,30 @@ def plotting_cov_mat(cov_mat):
     pyplot.show()
 
 
-def create_output_params(transmit_freqs, white_noise_level, sample_separation, pulses, lags,
+def create_output_files(transmit_freqs, white_noise_level, sample_separation, pulses, lags,
                         first_range, range_separation, fundamental_lag_spacing, output_params):
+    """
+    Creates output files for the simulated data.
+
+    :param      transmit_freqs:           The transmit freqs
+    :type       transmit_freqs:           ndarray [num_slices,]
+    :param      white_noise_level:        The white noise level.
+    :type       white_noise_level:        float
+    :param      sample_separation:        The sample separation in microseconds.
+    :type       sample_separation:        int
+    :param      pulses:                   The pulse spacings used to generate the sequence.
+    :type       pulses:                   ndarray [num_pulses,]
+    :param      lags:                     The desired pairs of pulses used for lags.
+    :type       lags:                     ndarray [num_lags, 2]
+    :param      first_range:              The first range as range number.
+    :type       first_range:              int
+    :param      range_separation:         The range separation in km.
+    :type       range_separation:         int
+    :param      fundamental_lag_spacing:  The fundamental lag spacing in microseconds.
+    :type       fundamental_lag_spacing:  int
+    :param      output_params:            The simulated data parameters to be output to file.
+    :type       output_params:            dict
+    """
 
     num_records = output_params['num_records']
     num_slices = output_params['num_slices']
@@ -141,8 +163,6 @@ def create_output_params(transmit_freqs, white_noise_level, sample_separation, p
         bfiq_data['num_samps'] = np.uint32(output_params['bfiq'].shape[-1])
         bfiq_data['num_ranges'] = np.uint32(num_ranges)
 
-
-
         filename = "simulated_{}.rawacf.hdf5".format(i)
         pydarnio.BorealisWrite(filename, rawacf_data, 'rawacf', 'array')
 
@@ -194,17 +214,26 @@ def main():
     w = np.linspace(spectral_width_range[0], spectral_width_range[1], num=num_ranges)
     w = w[:,np.newaxis,np.newaxis]
 
+    # [1, all_lags, 1]
+    # [num_slices,]
     W_constant = (-1 * 2 * np.pi * t)/wavelength
+
+    # [1, all_lags, 1]
+    # [num_slices,]
     V_constant = (1j * 4 * np.pi * t)/wavelength
 
+    # [1, all_lags, num_slices]
+    # [num_ranges, 1, 1]
+    # [1, all_lags, num_slices]
+    # [num_ranges, 1, 1]
     acf_model = amplitude * np.exp(W_constant * w) * np.exp(V_constant * v)
 
-    # define rho now to be an array of [4, all_lags]. Each row will be the rho value corresponding
-    # to the components of the voltage samples used to make the correlations. The resultant array
-    # dimensions can be transposed and reshaped to yield the values of the covariance matrix with
-    # dimensions of [2*highest_lag, 2*highest_lag]. Covariance matrix signs will be fixed after.
-
-
+    # reshape the model so that rho now to be an array of
+    # [num_slices, num_ranges, all_lags, 4]. Each row will be the
+    # rho value corresponding to the components of the voltage samples used to make the correlations.
+    # The resultant array dimensions can be transposed and reshaped to yield the values of the
+    # covariance matrix with dimensions of [num_slices, num_ranges, 2*highest_lag, 2*highest_lag].
+    # Covariance matrix signs will be fixed after.
     rho = np.array([acf_model.real, acf_model.imag, acf_model.imag, acf_model.real])
     rho = np.einsum('ijkl->ljki', rho)
 
@@ -255,15 +284,20 @@ def main():
         noise_samps.append(ns)
 
 
+    # Combine our drawn sample components into complex pairs.
     rand_samps = np.array(rand_samps)
     rand_samps = rand_samps[...,0::2] + 1j * rand_samps[...,1::2]
 
+    # [num_ranges, 1, 1]
     e = np.linspace(elevation_range[0], elevation_range[1], num=num_ranges) * np.pi/180.0
     e = e[np.newaxis,:,np.newaxis,np.newaxis,np.newaxis,np.newaxis]
 
+    # Apply phase offset to intf samples
     rand_samps[...,1,:,:] *= np.exp(1j * e)
 
-    ranges_with_data = np.concatenate([np.arange(rng[0],rng[1]) for rng in ranges_with_data])
+
+    # Blank out ranges we don't want
+    ranges_with_data = np.concatenate([np.arange(rng[0], rng[1]) for rng in ranges_with_data])
     mask = np.full(rand_samps.shape, True, dtype=bool)
     mask[:,ranges_with_data,...] = False
 
@@ -274,16 +308,25 @@ def main():
 
     raw_samps = rand_samps + noise_samps
 
+    # [2, num_ranges, num_records, num_averages, num_slices, 1, 2*highest_lag]
+    # [num_records, 2, num_slices, num_ranges, num_averages, 1, 2*highest_lag]
     samples_T = np.einsum('ijklm...->kmijl...', raw_samps)
-
 
     # Generate ACFs from drawn samples.
     samples_H = np.conj(samples_T)
 
     samples = np.einsum('...ij->...ji', samples_T)
 
+    # [num_records, num_slices, num_ranges, num_averages, 2*highest_lag, 1]
+    # [num_records, num_slices, num_ranges, num_averages, 1, 2*highest_lag]
     all_main_acfs = np.einsum('...ik,...kj->...ij', samples[:,0], samples_H[:,0])
+
+    # [num_records, num_slices, num_ranges, num_averages, 2*highest_lag, 1]
+    # [num_records, num_slices, num_ranges, num_averages, 1, 2*highest_lag]
     all_intf_acfs = np.einsum('...ik,...kj->...ij', samples[:,1], samples_H[:,1])
+
+    # [num_records, num_slices, num_ranges, num_averages, 2*highest_lag, 1]
+    # [num_records, num_slices, num_ranges, num_averages, 1, 2*highest_lag]
     all_xcfs = np.einsum('...ik,...kj->...ij', samples[:,0], samples_H[:,1])
 
     sim_main_acfs = all_main_acfs[...,lags[:,0],lags[:,1]]
@@ -300,13 +343,20 @@ def main():
     sim_xcfs = sim_xcfs[:,:,np.newaxis,:,:]
 
 
-
     samples_temp = samples[...,pulses,0]
+
+    # [num_records, 2, num_slices, num_ranges, num_averages, num_pulses]
+    # [num_records, 2, num_slices, num_averages, num_ranges, num_pulses]
     samples_temp = np.einsum('ijklmn->ijkmln', samples_temp)
 
-    num_output_samps = int(first_range + num_ranges + (pulses[-1] * (fundamental_lag_spacing / sample_separation)))
-    bfiq_samps = np.zeros(samples_temp.shape[:4] + (num_output_samps,), dtype=samples_temp.dtype)
 
+    num_output_samps = int(first_range + num_ranges + (pulses[-1] *
+                            (fundamental_lag_spacing / sample_separation)))
+
+
+    # We've already drawn our samples for each pulse at each range. We just need to reshape it
+    # back as if it were a contiguously sampled time domain signal.
+    bfiq_samps = np.zeros(samples_temp.shape[:4] + (num_output_samps,), dtype=samples_temp.dtype)
 
     for i in range(num_ranges):
         idx = pulses * int(fundamental_lag_spacing / sample_separation) + i + first_range
@@ -326,7 +376,7 @@ def main():
     output_params['num_averages'] = num_averages
     output_params['num_beams'] = 1
 
-    create_output_params(transmit_freqs, white_noise_level, sample_separation, pulses, lags,
+    create_output_files(transmit_freqs, white_noise_level, sample_separation, pulses, lags,
                         first_range, range_separation, fundamental_lag_spacing, output_params)
 
 

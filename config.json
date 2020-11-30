@@ -9,7 +9,7 @@
     "num_ranges" : 75,
     "ranges_with_data" : [[30,50]],
     "first_range" : 0,
-    "sample_separation" : 300.0,
+    "sample_separation" : 300,
     "fundamental_lag_spacing" : 1800,
     "range_separation" : 45,
     "pulses" : [0,14,22,24,27,31,42,43],
