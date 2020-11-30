@@ -283,9 +283,12 @@ def main():
         rand_samps.append(rs)
         noise_samps.append(ns)
 
-
     # Combine our drawn sample components into complex pairs.
     rand_samps = np.array(rand_samps)
+
+    # The main array and intf array should have the same signal, but different noise values. This
+    # assignment is the fastest and easiest way to do achieve that result.
+    rand_samps[...,1,:,:] = rand_samps[...,0,:,:]
     rand_samps = rand_samps[...,0::2] + 1j * rand_samps[...,1::2]
 
     # [num_ranges, 1, 1]
