@@ -178,21 +178,27 @@ def main():
         sim_params = json.load(f)
 
     transmit_freqs = np.array(sim_params['transmit_freqs'])
-    spectral_width_range = sim_params['spectral_width_range']
     white_noise_level = sim_params['white_noise_level']
     amplitude = sim_params['amplitude']
     sample_separation = sim_params['sample_separation']
     pulses = np.array(sim_params['pulses'])
-    num_ranges = sim_params['num_ranges']
     first_range = sim_params['first_range']
     num_averages = sim_params['num_averages']
     range_separation = sim_params['range_separation']
     fundamental_lag_spacing = sim_params['fundamental_lag_spacing']
-    velocity_range = sim_params['velocity_range']
-    elevation_range = sim_params['elevation_phase_range']
+    velocities = np.array(sim_params['velocities'])
+    elevation_phases = np.array(sim_params['elevation_phases'])
+    spectral_widths = np.array(sim_params['spectral_widths'])
     num_records = sim_params['num_records']
     lags = np.array(sim_params['lags'])
     ranges_with_data = sim_params['ranges_with_data']
+
+    if (spectral_widths.shape[0] != velocities.shape[0] != elevation_phases.shape[0]):
+        msg = "Spectral widths, velocities, and elevation phases need to have matching length " \
+                "with a value for each range."
+        raise ValueError(msg)
+
+    num_ranges = velocities.shape[0]
 
 
     # Find highest lag (account for lag 0) and generate all possible lags.
@@ -208,11 +214,8 @@ def main():
     t = lag_nums * (fundamental_lag_spacing * 1e-6)
     t = t[np.newaxis,:,np.newaxis]
 
-    v = np.linspace(velocity_range[0], velocity_range[1], num=num_ranges)
-    v = v[:,np.newaxis,np.newaxis]
-
-    w = np.linspace(spectral_width_range[0], spectral_width_range[1], num=num_ranges)
-    w = w[:,np.newaxis,np.newaxis]
+    v = velocities[:,np.newaxis,np.newaxis]
+    w = spectral_widths[:,np.newaxis,np.newaxis]
 
     # [1, all_lags, 1]
     # [num_slices,]
@@ -262,9 +265,7 @@ def main():
     cov_mat *= signs[np.newaxis, np.newaxis, :, :]
 
     # create the covariance matrix of the noise.
-    noise_cov = np.diagflat(np.ones(2 * highest_lag)) * white_noise_level
-
-    np.random.seed(13873) # so that we can deterministically reproduce our results
+    noise_cov = np.diagflat(np.ones(2 * highest_lag)) * white_noise_level / 2.0
 
     # Draw random samples from PDFs generated from the cov_mat.
     size = (num_records, num_averages, 2, 1)
@@ -291,9 +292,8 @@ def main():
     rand_samps[...,1,:,:] = rand_samps[...,0,:,:]
     rand_samps = rand_samps[...,0::2] + 1j * rand_samps[...,1::2]
 
-    # [num_ranges, 1, 1]
-    e = np.linspace(elevation_range[0], elevation_range[1], num=num_ranges) * np.pi/180.0
-    e = e[np.newaxis,:,np.newaxis,np.newaxis,np.newaxis,np.newaxis]
+    # [1, num_ranges, 1, 1, 1, 1]
+    e = elevation_phases[np.newaxis,:,np.newaxis,np.newaxis,np.newaxis,np.newaxis]
 
     # Apply phase offset to intf samples
     rand_samps[...,1,:,:] *= np.exp(1j * e)
