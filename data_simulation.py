@@ -115,7 +115,7 @@ def create_output_files(transmit_freqs, noise_level, sample_separation, pulses, 
     common_fields['int_time'] = np.ones(num_records, dtype=np.float32) * sequence_time
     common_fields['intf_antenna_count'] = np.uint32(4)
     common_fields['main_antenna_count'] = np.uint32(16)
-    common_fields['noise_at_freq'] = np.zeros((num_records, num_averages)) * noise_level
+    common_fields['noise_at_freq'] = np.ones((num_records, num_averages)) * noise_level
     common_fields['num_sequences'] = np.ones(num_records, dtype=np.int64) * num_averages
     common_fields['num_slices'] = np.ones(num_records, dtype=np.int64) * num_slices
     common_fields['pulses'] = pulses.astype(np.uint32)
