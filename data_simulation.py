@@ -66,15 +66,15 @@ def plotting_cov_mat(cov_mat):
     pyplot.show()
 
 
-def create_output_files(transmit_freqs, white_noise_level, sample_separation, pulses, lags,
+def create_output_files(transmit_freqs, noise_level, sample_separation, pulses, lags,
                         first_range, range_separation, fundamental_lag_spacing, output_params):
     """
     Creates output files for the simulated data.
 
     :param      transmit_freqs:           The transmit freqs
     :type       transmit_freqs:           ndarray [num_slices,]
-    :param      white_noise_level:        The white noise level.
-    :type       white_noise_level:        float
+    :param      noise_level:              The noise level.
+    :type       noise_level:              float
     :param      sample_separation:        The sample separation in microseconds.
     :type       sample_separation:        int
     :param      pulses:                   The pulse spacings used to generate the sequence.
@@ -115,7 +115,7 @@ def create_output_files(transmit_freqs, white_noise_level, sample_separation, pu
     common_fields['int_time'] = np.ones(num_records, dtype=np.float32) * sequence_time
     common_fields['intf_antenna_count'] = np.uint32(4)
     common_fields['main_antenna_count'] = np.uint32(16)
-    common_fields['noise_at_freq'] = np.zeros((num_records, num_averages))
+    common_fields['noise_at_freq'] = np.ones((num_records, num_averages)) * noise_level
     common_fields['num_sequences'] = np.ones(num_records, dtype=np.int64) * num_averages
     common_fields['num_slices'] = np.ones(num_records, dtype=np.int64) * num_slices
     common_fields['pulses'] = pulses.astype(np.uint32)
@@ -171,15 +171,10 @@ def create_output_files(transmit_freqs, white_noise_level, sample_separation, pu
 
 
 
-
-def main():
-
-    with open('config.json', 'r') as f:
-        sim_params = json.load(f)
-
+def simulate(sim_params):
     transmit_freqs = np.array(sim_params['transmit_freqs'])
-    white_noise_level = sim_params['white_noise_level']
-    amplitude = sim_params['amplitude']
+    noise_level = sim_params['noise_level']
+    amplitudes = np.array(sim_params['amplitudes'])
     sample_separation = sim_params['sample_separation']
     pulses = np.array(sim_params['pulses'])
     first_range = sim_params['first_range']
@@ -191,7 +186,7 @@ def main():
     spectral_widths = np.array(sim_params['spectral_widths'])
     num_records = sim_params['num_records']
     lags = np.array(sim_params['lags'])
-    ranges_with_data = sim_params['ranges_with_data']
+    ranges_with_data = np.array(sim_params['ranges_with_data'])
 
     if (spectral_widths.shape[0] != velocities.shape[0] != elevation_phases.shape[0]):
         msg = "Spectral widths, velocities, and elevation phases need to have matching length " \
@@ -216,7 +211,7 @@ def main():
 
     v = velocities[:,np.newaxis,np.newaxis]
     w = spectral_widths[:,np.newaxis,np.newaxis]
-
+    a = amplitudes[:,np.newaxis, np.newaxis]
     # [1, all_lags, 1]
     # [num_slices,]
     W_constant = (-1 * 2 * np.pi * t)/wavelength
@@ -229,7 +224,7 @@ def main():
     # [num_ranges, 1, 1]
     # [1, all_lags, num_slices]
     # [num_ranges, 1, 1]
-    acf_model = amplitude * np.exp(W_constant * w) * np.exp(V_constant * v)
+    acf_model = a * np.exp(W_constant * w) * np.exp(V_constant * v)
 
     # reshape the model so that rho now to be an array of
     # [num_slices, num_ranges, all_lags, 4]. Each row will be the
@@ -265,7 +260,7 @@ def main():
     cov_mat *= signs[np.newaxis, np.newaxis, :, :]
 
     # create the covariance matrix of the noise.
-    noise_cov = np.diagflat(np.ones(2 * highest_lag)) * white_noise_level / 2.0
+    noise_cov = np.diagflat(np.ones(2 * highest_lag)) * noise_level / 2.0
 
     # Draw random samples from PDFs generated from the cov_mat.
     size = (num_records, num_averages, 2, 1)
@@ -291,6 +286,7 @@ def main():
     # assignment is the fastest and easiest way to do achieve that result.
     rand_samps[...,1,:,:] = rand_samps[...,0,:,:]
     rand_samps = rand_samps[...,0::2] + 1j * rand_samps[...,1::2]
+    rand_samps = rand_samps.astype(np.complex64)
 
     # [1, num_ranges, 1, 1, 1, 1]
     e = elevation_phases[np.newaxis,:,np.newaxis,np.newaxis,np.newaxis,np.newaxis]
@@ -300,7 +296,6 @@ def main():
 
 
     # Blank out ranges we don't want
-    ranges_with_data = np.concatenate([np.arange(rng[0], rng[1]) for rng in ranges_with_data])
     mask = np.full(rand_samps.shape, True, dtype=bool)
     mask[:,ranges_with_data,...] = False
 
@@ -308,6 +303,7 @@ def main():
 
     noise_samps = np.array(noise_samps)
     noise_samps = noise_samps[...,0::2] + 1j * noise_samps[...,1::2]
+    noise_samps = noise_samps.astype(np.complex64)
 
     raw_samps = rand_samps + noise_samps
 
@@ -379,7 +375,25 @@ def main():
     output_params['num_averages'] = num_averages
     output_params['num_beams'] = 1
 
-    create_output_files(transmit_freqs, white_noise_level, sample_separation, pulses, lags,
+    return output_params
+
+def main():
+
+    with open('config.json', 'r') as f:
+        sim_params = json.load(f)
+
+    output_params = simulate(sim_params)
+
+    transmit_freqs = np.array(sim_params['transmit_freqs'])
+    noise_level = sim_params['noise_level']
+    sample_separation = sim_params['sample_separation']
+    pulses = np.array(sim_params['pulses'])
+    first_range = sim_params['first_range']
+    range_separation = sim_params['range_separation']
+    fundamental_lag_spacing = sim_params['fundamental_lag_spacing']
+    lags = np.array(sim_params['lags'])
+
+    create_output_files(transmit_freqs, noise_level, sample_separation, pulses, lags,
                         first_range, range_separation, fundamental_lag_spacing, output_params)
 
 
